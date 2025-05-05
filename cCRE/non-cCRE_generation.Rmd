@@ -1,0 +1,148 @@
+---
+title: "non_cCRE_generation"
+output: html_document
+date: "2025-03-27"
+---
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r, include=FALSE}
+# install packages if not installed
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install(c("GenomicRanges", "rtracklayer", "Biostrings", 
+#                     "BSgenome.Hsapiens.UCSC.hg38", "nullranges"))
+
+library(GenomicRanges)
+library(rtracklayer)
+library(Biostrings)
+library(BSgenome.Hsapiens.UCSC.hg38)  # loads BSgenome for hg38
+library(nullranges)
+library(stringr)
+```
+
+
+```{r, include=FALSE}
+lines <- readLines("/hpc/group/igvf/K562/CRE-preds/all-CREs.txt")
+parsed <- str_match(lines, "^(chr[^:]+):(\\d+)-(\\d+)$")
+df <- data.frame(
+  seqnames = parsed[, 2],
+  start = as.numeric(parsed[, 3]),
+  end = as.numeric(parsed[, 4])
+)
+```
+
+```{r, include=FALSE}
+#ccre_bed <- "/hpc/group/igvf/boyao/cCRE/cCRE-data/bed/GRCh38-cCREs.bed"
+ccre_fasta <- "/hpc/group/igvf/boyao/cCRE/cCRE-data/fasta/all_cCREs.fasta"
+
+# Import cCRE BED as GRanges
+# ccre_gr <- import(ccre_bed, format="BED")  # from rtracklayer
+ccre_gr <- GRanges(seqnames = df$seqnames, ranges = IRanges(start = df$start, end = df$end))
+
+# Load cCRE sequences from FASTA
+ccre_seqs <- readDNAStringSet(ccre_fasta, format="fasta")
+```
+
+```{r, include=FALSE}
+rm(lines, df, parsed)
+gc()
+```
+
+```{r, include=FALSE}
+length(ccre_gr)        # number of cCRE regions
+length(ccre_seqs)      # number of sequences (should match above)
+table(width(ccre_seqs))# check all sequence lengths (expect 300 bp)
+```
+
+```{r, include=FALSE}
+# Compute GC content fraction for each sequence
+gc_counts <- letterFrequency(ccre_seqs, letters=c("G","C"), as.prob=FALSE)
+# letterFrequency returns a matrix of counts for G and C for each sequence
+gc_totals <- rowSums(gc_counts)             # total G+C count per sequence
+gc_fraction <- gc_totals / width(ccre_seqs) # GC fraction (between 0 and 1)
+
+# Attach GC content as a metadata column to ccre_gr
+mcols(ccre_gr)$GC_frac <- gc_fraction
+summary(ccre_gr$GC_frac)  # summary of GC content distribution
+```
+
+```{r, include=FALSE}
+# Get full genome GRanges (all chromosomes) from BSgenome
+# hg38 <- BSgenome.Hsapiens.UCSC.hg38  # reference genome
+# chroms <- seqnames(hg38)[1:24]      # e.g., autosomes + X/Y (adjust if needed)
+# seqlengths <- seqlengths(hg38)[chroms]
+# genome_gr <- GRanges(chroms, IRanges(start=1, end=seqlengths))
+# 
+# # Subtract excluded regions from the genome
+# allowed_gr <- setdiff(genome_gr, ccre_gr)
+```
+
+```{r, include=FALSE}
+# Function to tile an interval into 300 bp chunks
+# tile_to_300bp <- function(gr) {
+#     tile_count <- width(gr) %/% 300          # number of full 300bp tiles that fit
+#     starts <- start(gr) + 0:(tile_count-1)*300
+#     if(tile_count > 0) {
+#       GRanges(seqnames(gr), IRanges(starts, width=300))
+#     }
+# }
+# # Apply to each allowed region and combine results
+# candidates_list <- lapply(seq_along(allowed_gr), function(i) tile_to_300bp(allowed_gr[i]))
+# candidates_gr <- do.call(c, candidates_list)  # combine into one GRanges
+# length(candidates_gr)  # total candidate 300bp segments available
+```
+
+```{r, include=FALSE}
+candidates_gr <- import("/hpc/group/igvf/boyao/hg38/candidate_windows.bed", format = "BED")
+nuc_data <- read.table("/hpc/group/igvf/boyao/hg38/candidates_gc.tsv", header = FALSE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
+```
+
+```{r, include=FALSE}
+colnames(nuc_data) <- c("chrom", "start", "end", "pct_at", "pct_gc", 
+                        "num_A", "num_C", "num_G", "num_T", "num_N", "num_oth", 
+                        "seq_len", "seq")
+candidates_gr$id <- paste0(seqnames(candidates_gr), "_", start(candidates_gr) - 1, "_", end(candidates_gr))
+
+nuc_data$id <- paste0(nuc_data$chrom, "_", nuc_data$start, "_", nuc_data$end)
+match_idx <- match(candidates_gr$id, nuc_data$id)
+candidates_gr$GC_frac <- as.numeric(nuc_data[match_idx, "pct_gc"])
+candidates_gr <- candidates_gr[!is.na(candidates_gr$GC_frac)]
+```
+
+```{r, include=FALSE}
+primary_chroms <- paste0("chr", c(1:22, "X", "Y"))
+candidates_gr <- candidates_gr[seqnames(candidates_gr) %in% primary_chroms]
+```
+
+```{r, include=FALSE}
+primary_chroms <- paste0("chr", c(1:22, "X", "Y"))
+ccre_primary <- ccre_gr[seqnames(ccre_gr) %in% primary_chroms]
+```
+
+```{r, include=FALSE}
+summary(ccre_gr$GC_frac)
+summary(candidates_gr$GC_frac)
+hist(ccre_gr$GC_frac, main="cCRE GC Fraction", xlab="GC fraction")
+hist(candidates_gr$GC_frac, main="Candidate GC Fraction", xlab="GC fraction")
+```
+
+```{r, include=FALSE}
+set.seed(42)
+matched_gr <- matchRanges(focal = ccre_gr, pool = candidates_gr, covar = ~ GC_frac)
+```
+
+```{r, include=FALSE}
+export(matched_gr, "primary_GC_matched_non_cCREs.bed", format="BED")
+```
+
+```{r, include=FALSE}
+twobit <- TwoBitFile("/hpc/group/igvf/boyao/hg38/hg38.2bit")
+matched_seqs <- getSeq(twobit, matched_gr)
+names(matched_seqs) <- paste0(seqnames(matched_gr), ":", start(matched_gr), "-", end(matched_gr))
+writeXStringSet(matched_seqs, "primary_GC_matched_non_cCREs.fasta")
+```
