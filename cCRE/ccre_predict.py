@@ -298,19 +298,8 @@ def plot_scatter(pred, pred_shuf):
     plt.grid(False)
     plt.savefig('K562-7_cCRE_origin_rshuf_scatter.png')
 
-if __name__ == '__main__':
-
-    '''
-    # Check if the correct number of arguments is provided
-    if len(sys.argv) != 4:
-        print("Usage: python plot_dist.py <modelFilestem> <inFile> <faFile>")
-        sys.exit(1)
-
-    (modelFileStem, faPath, faFileStem) = sys.argv[1:]
-    main(modelFileStem, faPath, faFileStem, shuffle=True)
-    '''
-    
-    # Load predictions
+def plot_results():
+        # Load predictions
     pred = np.load('K562_new_res/all_cCREs.npz')['arr']
     pred_shuf = np.load('K562_new_res/all_cCREs_shuf.npz')['arr']
     pred_non = np.load('K562_new_res/primary_GC_matched_non_cCREs.npz')['arr']
@@ -330,3 +319,33 @@ if __name__ == '__main__':
 
     #plot_scatter(pred, pred_shuf)
     plot_density(pred, pred_shuf, pred_non)
+
+if __name__ == '__main__':
+
+    if len(sys.argv) < 2:
+        print("Usage: python ccre_predict.py <mode> [<modelFilestem> <faPath> <faFileStem> <shuffle>]")
+        sys.exit(1)
+    
+    mode = sys.argv[1]
+    # <mode> = predict or plot for prediction or plotting
+    if  mode not in ['predict', 'plot']:
+        print("Invalid mode. Use 'predict' or 'plot'.")
+        sys.exit(1)
+
+    if mode == 'predict':
+        if len(sys.argv) != 6:
+            # <modelFilestem> = path to model file without extension
+            # <faPath> = path to fasta files
+            # <faFile> = all_cCREs or primary_GC_matched_non_cCREs
+            # <shuffle> = True or False
+            print("Usage: python ccre_predict.py predict <modelFilestem> <faPath> <faFileStem> <shuffle>")
+            sys.exit(1)
+
+        else:
+            (modelFileStem, faPath, faFileStem, shuffle) = sys.argv[2:]
+            # shuffle=True for shuffled cCRE sequences
+            is_shuffle = False if shuffle == 'False' else True
+            main(modelFileStem, faPath, faFileStem, shuffle=is_shuffle)
+    
+    elif mode == "plot":
+        plot_results()
